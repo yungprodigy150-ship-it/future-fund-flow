@@ -1,85 +1,175 @@
-import React, { useState } from 'react';
-import { Calculator as CalcIcon, Wallet, Sun, Moon } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Navbar from './components/Navbar';
+import SplashScreen from './components/SplashScreen';
+import GlobalErrorBoundary from './components/ErrorBoundary';
+import { supabase } from './lib/supabaseClient';
+
+// Core component static imports to prevent runtime dynamic import errors
+// Critical routes are directly imported to avoid chunk loading issues after external redirects
+import LoginForm from './components/Auth/LoginForm';
+import SignupForm from './components/Auth/SignupForm';
+import ForgotPassword from './components/Auth/ForgotPassword';
+import ResetPassword from './components/Auth/ResetPassword';
+import ProfilePage from './components/Auth/ProfilePage';
+import Dashboard from './components/Dashboard';
+import SafesDashboard from './components/SafesDashboard';
 import Calculator from './components/Calculator';
+import LandingPage from './components/LandingPage';
+import PaymentStatusPage from './components/PaymentStatusPage';
 import SavingsTracker from './components/SavingsTracker';
+import PaystackReturn from './components/PaystackReturn';
 
-function App() {
+// Optimized Loading component for auth states
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+// Protected Route Component
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, initialized } = useAuth();
+  
+  if (!initialized) return <PageLoader />;
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Public Route Component
+const PublicRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, initialized } = useAuth();
+  
+  if (!initialized) return <PageLoader />;
+  
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Auth Listener Component to handle session changes
+const AuthListener = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password');
+      }
+      
+      if (event === 'SIGNED_IN') {
+        const hash = window.location.hash;
+        if (hash.includes('type=signup') || hash.includes('type=invite')) {
+          navigate('/dashboard');
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  return null;
+};
+
+function AppContent() {
   const [isDark, setIsDark] = useState(false);
+  const { initialized } = useAuth();
 
-  const toggleTheme = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle('dark');
-  };
+  useEffect(() => {
+    const isDarkMode = document.documentElement.classList.contains('dark') || 
+                      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    setIsDark(isDarkMode);
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(prev => {
+      const newState = !prev;
+      if (newState) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return newState;
+    });
+  }, []);
+
+  const themeClass = useMemo(() => 
+    `min-h-screen transition-colors duration-200 ${isDark ? 'dark bg-slate-950 text-slate-50' : 'bg-slate-50 text-slate-950'}`
+  , [isDark]);
+
+  // HIGH PRIORITY ISOLATION FOR PAYSTACK RETURN
+  // This bypasses the initialization splash screen and other complex logic for the return route
+  if (window.location.pathname === '/paystack-return') {
+    return (
+      <div className={themeClass}>
+        <main className="relative min-h-[calc(100vh-64px)] flex flex-col">
+          <PaystackReturn />
+        </main>
+      </div>
+    );
+  }
+
+  if (!initialized) {
+    return <SplashScreen />;
+  }
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
-      <Toaster position="top-center" richColors />
+    <div className={themeClass}>
+      <Toaster position="top-center" richColors closeButton />
       
-      {/* Background decoration */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none opacity-20 dark:opacity-10">
-        <img 
-          src="https://storage.googleapis.com/dala-prod-public-storage/generated-images/03f07f73-f215-4971-8e5b-58cccf7a81cc/financial-growth-abstract-b1904e7f-1777850789240.webp" 
-          alt="" 
-          className="w-full h-full object-cover blur-3xl"
-        />
-      </div>
+      <AuthListener />
+      
+      <Navbar toggleTheme={toggleTheme} isDark={isDark} />
 
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
-              <Wallet className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">FinSmart</h1>
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Financial Companion</p>
-            </div>
-          </div>
-
-          <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full">
-            {isDark ? <Sun className="h-5 w-5 text-amber-400" /> : <Moon className="h-5 w-5 text-slate-700" />}
-          </Button>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 relative">
-        <Tabs defaultValue="savings" className="w-full">
-          <div className="flex justify-center mb-8">
-            <TabsList className="h-14 p-1 bg-muted/50 rounded-2xl shadow-inner w-full max-w-md">
-              <TabsTrigger 
-                value="savings" 
-                className="flex-1 h-12 rounded-xl text-base font-semibold data-[state=active]:bg-background data-[state=active]:shadow-lg transition-all gap-2"
-              >
-                <Wallet className="h-5 w-5" />
-                Savings
-              </TabsTrigger>
-              <TabsTrigger 
-                value="calculator" 
-                className="flex-1 h-12 rounded-xl text-base font-semibold data-[state=active]:bg-background data-[state=active]:shadow-lg transition-all gap-2"
-              >
-                <CalcIcon className="h-5 w-5" />
-                Calculator
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="savings" className="mt-0 focus-visible:outline-none">
-            <SavingsTracker />
-          </TabsContent>
+      <main className="relative min-h-[calc(100vh-64px)] flex flex-col">
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<PublicRoute><LoginForm /></PublicRoute>} />
+          <Route path="/signup" element={<PublicRoute><SignupForm /></PublicRoute>} />
+          <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+          <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
           
-          <TabsContent value="calculator" className="mt-0 focus-visible:outline-none">
-            <Calculator />
-          </TabsContent>
-        </Tabs>
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/safes" element={<ProtectedRoute><SafesDashboard /></ProtectedRoute>} />
+          <Route path="/savings" element={<ProtectedRoute><SavingsTracker /></ProtectedRoute>} />
+          <Route path="/calculator" element={<ProtectedRoute><Calculator /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/payment-status" element={<ProtectedRoute><PaymentStatusPage /></ProtectedRoute>} />
+          <Route path="/paystack-return" element={<PaystackReturn />} />
+          
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
-      <footer className="py-12 text-center text-muted-foreground text-sm">
-        <p>© {new Date().getFullYear()} FinSmart App. Build your future today.</p>
+      <footer className="py-12 text-center text-muted-foreground text-sm border-t mt-auto">
+        <div className="container mx-auto px-4">
+          <p>&copy; {new Date().getFullYear()} FinSmart App. Secure Financial Planning.</p>
+        </div>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <GlobalErrorBoundary>
+      <AuthProvider>
+        <Router>
+          <AppContent />
+        </Router>
+      </AuthProvider>
+    </GlobalErrorBoundary>
   );
 }
 
