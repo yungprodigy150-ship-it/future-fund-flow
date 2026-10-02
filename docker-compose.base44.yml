@@ -1,0 +1,40 @@
+services:
+  web:
+    image: oven/bun:1.2.22
+    working_dir: /app
+    command:
+      - sh
+      - -ec
+      - |
+        # @supabase/supabase-js throws at import time unless the URL is http(s),
+        # which would blank the whole app. Real credentials from
+        # /run/base44/app.env are always used as-is; this only substitutes a
+        # harmless placeholder when no usable value is configured yet.
+        case "$$VITE_SUPABASE_URL" in
+          http://*|https://*) ;;
+          *) export VITE_SUPABASE_URL="https://placeholder.supabase.co" ;;
+        esac
+        [ -n "$$VITE_SUPABASE_ANON_KEY" ] || export VITE_SUPABASE_ANON_KEY="placeholder-anon-key"
+        bun install --frozen-lockfile
+        exec bun run dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+      - bun_cache:/root/.bun/install/cache
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - /run/base44/app.env
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "bash", "-c", "bun -e \"fetch('http://127.0.0.1:3000/').then(r=>r.text()).then(t=>process.exit(t.includes('src/main.tsx')?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+volumes:
+  node_modules:
+  bun_cache:
